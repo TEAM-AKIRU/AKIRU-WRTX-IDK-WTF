@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Call | Room: {{ room_id }}</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- PeerJS CDN -->
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peer.min.js"></script>
+</head>
+<body class="bg-gray-900 text-white flex flex-col min-h-screen">
+
+    <header class="p-4 bg-gray-800 text-center shadow-md">
+        <h1 class="text-2xl font-bold">WebRTC Call</h1>
+        <p class="text-sm text-gray-400">Room ID: <span class="font-mono bg-gray-700 px-2 py-1 rounded">{{ room_id }}</span></p>
+    </header>
+
+    <main class="flex-grow p-4 flex items-center justify-center">
+        <!-- Video Grid -->
+        <div id="video-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 w-full max-w-6xl mx-auto">
+            <!-- Videos will be added here dynamically -->
+        </div>
+    </main>
+
+    <footer class="p-4 bg-gray-800 shadow-inner">
+        <!-- Controls -->
+        <div class="flex justify-center items-center space-x-4">
+            <button id="mic-btn" class="p-3 rounded-full bg-blue-600 hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <!-- SVG Icon for Microphone -->
+                <svg class="w-6 h-6" id="mic-on-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>
+                <svg class="w-6 h-6 hidden" id="mic-off-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5l14 14"></path></svg>
+            </button>
+            <button id="camera-btn" class="p-3 rounded-full bg-blue-600 hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <!-- SVG Icon for Camera -->
+                <svg class="w-6 h-6" id="cam-on-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.55a1.5 1.5 0 01.45 2.12l-1.5 3A1.5 1.5 0 0117 16H3a1.5 1.5 0 01-1.5-1.5v-7A1.5 1.5 0 013 6h14a1.5 1.5 0 011.5 1.5v2.5z"></path></svg>
+                <svg class="w-6 h-6 hidden" id="cam-off-icon" fill="none" stroke="currentColor" viewBox="0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.55a1.5 1.5 0 01.45 2.12l-1.5 3A1.5 1.5 0 0117 16H3a1.5 1.5 0 01-1.5-1.5v-7A1.5 1.5 0 013 6h14a1.5 1.5 0 011.5 1.5v2.5z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5l14 14"></path></svg>
+            </button>
+            <button id="leave-btn" class="p-3 rounded-full bg-red-600 hover:bg-red-700 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500">
+                <!-- SVG Icon for Leaving Call -->
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+            </button>
+        </div>
+    </footer>
+
+    <script>
+        // --- DOM Elements ---
+        const videoGrid = document.getElementById('video-grid');
+        const micBtn = document.getElementById('mic-btn');
+        const cameraBtn = document.getElementById('camera-btn');
+        const leaveBtn = document.getElementById('leave-btn');
+
+        // --- Constants & Variables ---
+        const ROOM_ID = "{{ room_id }}";
+        const peer = new Peer(); // Let PeerJS generate an ID
+        let myPeerId = null;
+        let myStream = null;
+        const peers = {}; // To keep track of connected peers {peerId: callObject}
+
+        // --- WebSocket Setup ---
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsURL = `${wsProtocol}//${window.location.host}/ws/call/${ROOM_ID}`;
+        const ws = new WebSocket(wsURL);
+
+        // --- Core WebRTC Logic ---
+
+        // 1. Get user's audio and video stream
+        navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: true
+        }).then(stream => {
+            myStream = stream;
+            addVideoStream(myPeerId, stream, true); // Add our own video
+
+            // 2. Listen for incoming calls from other peers
+            peer.on('call', call => {
+                console.log(`Receiving call from ${call.peer}`);
+                call.answer(myStream); // Answer the call with our stream
+
+                call.on('stream', remoteStream => {
+                    console.log(`Received remote stream from ${call.peer}`);
+                    // Avoid adding duplicate video streams
+                    if (!peers[call.peer]) {
+                        addVideoStream(call.peer, remoteStream);
+                    }
+                });
+
+                call.on('close', () => {
+                    console.log(`Call with ${call.peer} closed.`);
+                    removeVideoStream(call.peer);
+                });
+                
+                peers[call.peer] = call;
+            });
+
+            // 3. Handle WebSocket messages
+            ws.onmessage = event => {
+                const otherPeerId = event.data;
+                console.log(`WebSocket received new peer ID: ${otherPeerId}`);
+                if (otherPeerId !== myPeerId) {
+                    connectToNewUser(otherPeerId, stream);
+                }
+            };
+
+        }).catch(err => {
+            console.error("Failed to get local stream", err);
+            alert("Could not access your camera or microphone. Please check permissions.");
+        });
+
+        // 4. When our peer connection is open, get our ID and send it via WebSocket
+        peer.on('open', id => {
+            myPeerId = id;
+            console.log('My peer ID is: ' + id);
+            // Wait for WebSocket to be open before sending
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(id);
+            } else {
+                ws.onopen = () => ws.send(id);
+            }
+        });
+
+        peer.on('error', err => {
+            console.error('PeerJS error:', err);
+        });
+        
+        // --- Helper Functions ---
+
+        function connectToNewUser(otherPeerId, stream) {
+            console.log(`Calling new peer: ${otherPeerId}`);
+            const call = peer.call(otherPeerId, stream);
+            
+            call.on('stream', remoteStream => {
+                console.log(`Received remote stream from ${otherPeerId}`);
+                 // Avoid adding duplicate video streams
+                if (!peers[otherPeerId]) {
+                    addVideoStream(otherPeerId, remoteStream);
+                }
+            });
+            
+            call.on('close', () => {
+                console.log(`Call with ${otherPeerId} closed.`);
+                removeVideoStream(otherPeerId);
+            });
+
+            peers[otherPeerId] = call;
+        }
+
+        function addVideoStream(peerId, stream, isMuted = false) {
+            const videoContainer = document.createElement('div');
+            videoContainer.id = `video-container-${peerId}`;
+            videoContainer.className = "relative bg-gray-800 rounded-lg overflow-hidden shadow-lg";
+
+            const video = document.createElement('video');
+            video.srcObject = stream;
+            video.autoplay = true;
+            video.playsInline = true;
+            video.muted = isMuted; // Mute our own video to prevent echo
+            video.className = "w-full h-full object-cover";
+
+            const nameTag = document.createElement('div');
+            nameTag.className = "absolute bottom-2 left-2 bg-black bg-opacity-50 text-white text-sm px-2 py-1 rounded";
+            nameTag.innerText = peerId === myPeerId ? "You" : `Peer: ${peerId.substring(0,6)}`;
+
+            videoContainer.appendChild(video);
+            videoContainer.appendChild(nameTag);
+            videoGrid.append(videoContainer);
+        }
+
+        function removeVideoStream(peerId) {
+            const videoContainer = document.getElementById(`video-container-${peerId}`);
+            if (videoContainer) {
+                videoContainer.remove();
+            }
+            delete peers[peerId];
+        }
+
+        // --- Controls Logic ---
+
+        micBtn.addEventListener('click', () => {
+            const enabled = myStream.getAudioTracks()[0].enabled;
+            myStream.getAudioTracks()[0].enabled = !enabled;
+            // Toggle icons
+            document.getElementById('mic-on-icon').classList.toggle('hidden', !enabled);
+            document.getElementById('mic-off-icon').classList.toggle('hidden', enabled);
+            micBtn.classList.toggle('bg-red-600', !enabled);
+            micBtn.classList.toggle('hover:bg-red-700', !enabled);
+            micBtn.classList.toggle('bg-blue-600', enabled);
+            micBtn.classList.toggle('hover:bg-blue-700', enabled);
+        });
+
+        cameraBtn.addEventListener('click', () => {
+            const enabled = myStream.getVideoTracks()[0].enabled;
+            myStream.getVideoTracks()[0].enabled = !enabled;
+            // Toggle icons
+            document.getElementById('cam-on-icon').classList.toggle('hidden', !enabled);
+            document.getElementById('cam-off-icon').classList.toggle('hidden', enabled);
+            cameraBtn.classList.toggle('bg-red-600', !enabled);
+            cameraBtn.classList.toggle('hover:bg-red-700', !enabled);
+            cameraBtn.classList.toggle('bg-blue-600', enabled);
+            cameraBtn.classList.toggle('hover:bg-blue-700', enabled);
+        });
+
+        leaveBtn.addEventListener('click', () => {
+            // Close all connections and leave the call
+            for (const peerId in peers) {
+                peers[peerId].close();
+            }
+            ws.close();
+            peer.destroy();
+            window.location.href = '/'; // Redirect to a safe page
+        });
+
+    </script>
+</body>
+</html>
