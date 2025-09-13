@@ -1,0 +1,4 @@
+Flask>=2.0
+uvicorn>=0.15
+Jinja2>=3.0
+flask-sock>=0.5
