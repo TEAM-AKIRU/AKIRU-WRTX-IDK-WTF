@@ -81,10 +81,3 @@ def call_websocket(ws, room_id):
             if not rooms[room_id]:
                 del rooms[room_id]
                 print(f"Room {room_id} is now empty and has been removed.")
-
-# --- For Local Development ---
-if __name__ == '__main__':
-    # Note: For production, use a proper ASGI server like Uvicorn or Gunicorn.
-    # The README will specify using 'uvicorn main:app'.
-    # This block is for simple `python main.py` execution.
-    app.run(debug=True, port=5000)
